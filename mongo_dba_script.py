@@ -21,9 +21,38 @@ MONGO_PROD_URL = os.getenv('MONGO_PROD_URL')
 # Configure Google Gemini API
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Choose a Gemini model.
+########################################
+# Authentication-related function
+########################################
+def check_access():
+  """
+  Simple function to prompt for a token and validate it against st.secrets.
+  Stores the auth state in st.session_state["authenticated"].
+  Returns True if user is authenticated, False otherwise.
+  """
+  if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+  if not st.session_state["authenticated"]:
+    st.subheader("Please enter your access token to proceed.")
+    user_key = st.text_input("Access Token", type="password")
+
+    if st.button("Login"):
+      # Compare with Streamlit secrets
+      expected_token = st.secrets["ACCESS_TOKEN"]  # from secrets.toml
+      if user_key == expected_token:
+        st.session_state["authenticated"] = True
+          
+      else:
+        st.error("Invalid token. Please try again.")
+
+  return st.session_state["authenticated"]
 
 
+
+########################################
+# Existing DB + LLM Logic
+########################################
 
 # Initialize MongoDB client
 def get_mongo_client(instance):
@@ -146,59 +175,45 @@ def execute_mongo_code(code_snippet, client, db, collection):
 
   
 
-# # Function to convert natural language query to Python code for chart generation using Gemini
-# def generate_chart_code(natural_language_query, dataframe):
-#     prompt = f"Generate Python code using matplotlib to create a chart based on the following natural language query and the given pandas DataFrame:\n\nQuery: {natural_language_query}\n\nDataFrame:\n{dataframe.head()}\n\nReturn only the Python code."
-#     response = model.generate_content(prompt)
-#     return response.text
+########################################
+# Main Streamlit App
+########################################
 
-# Streamlit app
 def main():
-    st.title("MongoDB Query and Visualization App")
+  st.title("MongoDB Query and Visualization App")
 
-    # Sidebar for instance selection
-    instance = st.sidebar.selectbox("Select Instance", ["test", "prod"])
-    client = get_mongo_client(instance)
+  # Check for auth
+  if not check_access():
+    return  # If not authenticated, stop here
+  
+  # Sidebar for instance selection
+  instance = st.sidebar.selectbox("Select Instance", ["test", "prod"])
+  client = get_mongo_client(instance)
 
-    # Input for database and collection names
-    db_name = st.selectbox("Enter Database Name",options=client.list_database_names())
+  # Input for database and collection names
+  db_name = st.selectbox("Enter Database Name",options=client.list_database_names())
 
 
-    if db_name:
-        db = client[db_name]
-        collection_name = st.selectbox("Enter Collection Name", options=db.list_collection_names())
-        if collection_name:
-            collection = db[collection_name]
+  if db_name:
+    db = client[db_name]
+    collection_name = st.selectbox("Enter Collection Name", options=db.list_collection_names())
+    if collection_name:
+      collection = db[collection_name]
 
-        
-            # Input for natural language query
-            query = st.text_input("Enter your query in natural language")
+      # Input for natural language query
+      query = st.text_input("Enter your query in natural language")
 
-            if query:
-                try:
-                    # Generate MongoDB query
-                    result = generate_mongo_query(query, db, collection)
-                    print(result)
-                    final_df = execute_mongo_code(extract_python(result),client, db, collection)
-                    
-                    st.write(final_df)
+      if query:
+        try:
+          # Generate MongoDB query
+          result = generate_mongo_query(query, db, collection)
+          print(result)
+          final_df = execute_mongo_code(extract_python(result),client, db, collection)
+          st.write("Results:")
+          st.write(final_df)
 
-                    #     # # Chart generation
-                    #     # chart_query = st.text_input("Enter a natural language query to generate a chart")
-                    #     # if chart_query:
-                    #     #     try:
-                    #     #         chart_code = generate_chart_code(chart_query, df)
-                    #     #         st.write(f"Generated Chart Code: `{chart_code}`")
-
-                    #     #         # Execute chart code
-                    #     #         exec(chart_code)
-                    #     #         st.pyplot(plt)
-                    #     #     except Exception as e:
-                    #     #         st.error(f"Error generating chart: {e}")
-                    # else:
-                    #     st.warning("No data found for the given query.")
-                except Exception as e:
-                    st.error(f"Error executing query: {e}")
+        except Exception as e:
+          st.error(f"Error executing query: {e}")
 
 if __name__ == "__main__":
-    main()
+  main()
